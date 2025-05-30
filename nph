@@ -1,0 +1,251 @@
+#!/bin/bash
+
+readonly G=$'\e[90m' # Gray
+readonly R=$'\e[91m' # Red
+readonly Y=$'\e[93m' # Yellow
+readonly B=$'\e[94m' # Blue
+readonly C=$'\e[96m' # Cyan
+readonly W=$'\e[97m' # White
+readonly X=$'\e[0m'  # Reset
+
+readonly SCRIPT_NAME="$(basename "$0")"
+readonly VERSION="1.0"
+
+show_help() {
+  echo "$SCRIPT_NAME v$VERSION$ - IP Subnet Calculator"
+  echo "Usage: $SCRIPT_NAME <CIDR|MASK> [BASE_IP]"
+  echo "Options:"
+  echo "  -h | --help       Display this information."
+  echo "  -c | --cheatsheet Display cheatsheet for CIDR and subnet mask conversions."
+  echo "  -v | --version    Display the version of the script."
+  echo ""
+  echo "Examples:"
+  echo "  $SCRIPT_NAME /24                    # Convert CIDR to subnet mask"
+  echo "  $SCRIPT_NAME 255.255.255.0          # Convert subnet mask to CIDR"
+  echo "  $SCRIPT_NAME /24 192.168.1.0        # Calculate network for 192.168.1.0/24"
+  echo "  $SCRIPT_NAME 255.255.255.0 10.0.0.0 # Calculate network with mask"
+  echo ""
+  echo "Supported Formats:"
+  echo "  CIDR:     /0 to /32                   (e.g., /24, /16)"
+  echo "  MASK:     0.0.0.0 to 255.255.255.255  (e.g., 255.255.255.0)"
+  echo "  BASE_IP:  Standard IPv4 address       (e.g., 192.168.1.0)"
+}
+
+show_cheat_sheet() {
+  echo "${C}╔═════════════════════╗${X}"
+  echo "${C}║ ${B}  0 ${W}= ${Y}00000000 ${G}→ ${W}+0${C} ║${X}"
+  echo "${C}║ ${B}128 ${W}= ${Y}10000000 ${G}→ ${W}+1${C} ║${X}"
+  echo "${C}║ ${B}192 ${W}= ${Y}11000000 ${G}→ ${W}+2${C} ║${X}"
+  echo "${C}║ ${B}224 ${W}= ${Y}11100000 ${G}→ ${W}+3${C} ║${X}"
+  echo "${C}║ ${B}240 ${W}= ${Y}11110000 ${G}→ ${W}+4${C} ║${X}"
+  echo "${C}║ ${B}248 ${W}= ${Y}11111000 ${G}→ ${W}+5${C} ║${X}"
+  echo "${C}║ ${B}252 ${W}= ${Y}11111100 ${G}→ ${W}+6${C} ║${X}"
+  echo "${C}║ ${B}254 ${W}= ${Y}11111110 ${G}→ ${W}+7${C} ║${X}"
+  echo "${C}║ ${B}255 ${W}= ${Y}11111111 ${G}→ ${W}+8${C} ║${X}"
+  echo "${C}╚═════════════════════╝${X}"
+}
+
+show_version() {
+  echo "$SCRIPT_NAME version $VERSION"
+  echo "Created by FonWasH"
+  echo "Licensed under the GNU General Public License v3.0"
+}
+
+error() {
+  echo "${R}Error:${X} $1" >&2
+  exit 1
+}
+
+is_valid_ip() {
+  local ip=$1
+  local IFS='.'
+  local -a octets=($ip)
+  [[ ${#octets[@]} -eq 4 ]] || return 1
+  for octet in "${octets[@]}"; do
+    [[ $octet =~ ^[0-9]+$ ]] || return 1
+    [[ $octet -ge 0 && $octet -le 255 ]] || return 1
+  done
+  return 0
+}
+
+is_valid_cidr() {
+  local cidr=$1
+  [[ $cidr =~ ^/([0-9]{1,2})$ ]] || return 1
+  local prefix=${BASH_REMATCH[1]}
+  [[ $prefix -ge 0 && $prefix -le 32 ]] || return 1
+  return 0
+}
+
+is_valid_subnet_mask() {
+  local mask=$1
+  is_valid_ip "$mask" || return 1
+  local IFS='.'
+  local -a octets=($mask)
+  local binary=""
+  for octet in "${octets[@]}"; do
+    local bin_str=$(echo "obase=2; $octet" | bc 2>/dev/null)
+    binary+=$(printf "%08d" "$bin_str")
+  done
+  [[ $binary =~ ^1*0*$ ]] || return 1
+  return 0
+}
+
+ip_to_decimal() {
+  local ip=$1
+  local IFS='.'
+  local -a octets=($ip)
+  echo $(((octets[0] << 24) + (octets[1] << 16) + (octets[2] << 8) + octets[3]))
+}
+
+decimal_to_ip() {
+  local decimal=$1
+  printf "%d.%d.%d.%d\n" \
+    $(((decimal >> 24) & 255)) \
+    $(((decimal >> 16) & 255)) \
+    $(((decimal >> 8) & 255)) \
+    $((decimal & 255))
+}
+
+mask_to_cidr() {
+  local mask=$1
+  local IFS='.'
+  local -a octets=($mask)
+  local binary=""
+  for octet in "${octets[@]}"; do
+    local bin_str=$(echo "obase=2; $octet" | bc 2>/dev/null)
+    binary+=$(printf "%08d" "$bin_str")
+  done
+  echo "$binary" | tr -cd '1' | wc -c
+}
+
+cidr_to_mask() {
+  local cidr=$1
+  local mask_decimal=$(((0xFFFFFFFF << (32 - cidr)) & 0xFFFFFFFF))
+  decimal_to_ip $mask_decimal
+}
+
+calculate_network_info() {
+  local ip=$1
+  local cidr=$2
+
+  local ip_decimal=$(ip_to_decimal "$ip")
+  local mask_decimal=$(((0xFFFFFFFF << (32 - cidr)) & 0xFFFFFFFF))
+  local network_decimal=$((ip_decimal & mask_decimal))
+  local broadcast_decimal=$((network_decimal | (0xFFFFFFFF >> cidr)))
+  local total_hosts=$((2 ** (32 - cidr)))
+  local usable_hosts=$((total_hosts > 2 ? total_hosts - 2 : 0))
+
+  local network_ip=$(decimal_to_ip $network_decimal)
+  local broadcast_ip=$(decimal_to_ip $broadcast_decimal)
+  local first_host_ip=$(decimal_to_ip $((network_decimal + 1)))
+  local last_host_ip=$(decimal_to_ip $((broadcast_decimal - 1)))
+  local subnet_mask=$(cidr_to_mask $cidr)
+
+  local first_octet=$(echo "$network_ip" | cut -d. -f1)
+  local class=""
+  if [[ $first_octet -ge 1 && $first_octet -le 126 ]]; then
+    class="A"
+  elif [[ $first_octet -ge 128 && $first_octet -le 191 ]]; then
+    class="B"
+  elif [[ $first_octet -ge 192 && $first_octet -le 223 ]]; then
+    class="C"
+  elif [[ $first_octet -ge 224 && $first_octet -le 239 ]]; then
+    class="D (Multicast)"
+  else
+    class="E (Experimental)"
+  fi
+
+  local addr_type=""
+  if [[ $first_octet -eq 10 ]] ||
+    [[ $first_octet -eq 172 && $(echo "$network_ip" | cut -d. -f2) -ge 16 && $(echo "$network_ip" | cut -d. -f2) -le 31 ]] ||
+    [[ $first_octet -eq 192 && $(echo "$network_ip" | cut -d. -f2) -eq 168 ]]; then
+    addr_type="Private"
+  elif [[ $first_octet -eq 127 ]]; then
+    addr_type="Loopback"
+  elif [[ $first_octet -eq 169 && $(echo "$network_ip" | cut -d. -f2) -eq 254 ]]; then
+    addr_type="APIPA"
+  else
+    addr_type="Public"
+  fi
+
+  echo ""
+  echo "${C}╔═══════════════════════════════════════════════════════════════╗${X}"
+  echo "${C}║${W}                    NETWORK INFORMATION                        ${C}║${X}"
+  echo "${C}╠═══════════════════════════════════════════════════════════════╣${X}"
+  printf "${C}║${X} ${B}Given IP:${X}          ${Y}%-15s${X} ${G}(%s)${X}                   ${C}║${X}\n" "$ip" "$addr_type"
+  printf "${C}║${X} ${B}Class:${X}             ${Y}%-42s${X} ${C}║${X}\n" "$class"
+  echo "${C}╠═══════════════════════════════════════════════════════════════╣${X}"
+  printf "${C}║${X} ${B}Subnet Mask:${X}       ${Y}%-42s${X} ${C}║${X}\n" "$subnet_mask"
+  printf "${C}║${X} ${B}CIDR:${X}              ${Y}%-42s${X} ${C}║${X}\n" "/$cidr"
+  echo "${C}╠═══════════════════════════════════════════════════════════════╣${X}"
+  printf "${C}║${X} ${B}Network:${X}           ${Y}%-42s${X} ${C}║${X}\n" "$network_ip"
+  printf "${C}║${X} ${B}Broadcast:${X}         ${Y}%-42s${X} ${C}║${X}\n" "$broadcast_ip"
+  echo "${C}╠═══════════════════════════════════════════════════════════════╣${X}"
+  if [[ $usable_hosts -gt 0 ]]; then
+    printf "${C}║${X} ${B}First Host IP:${X}     ${Y}%-42s${X} ${C}║${X}\n" "$first_host_ip"
+    printf "${C}║${X} ${B}Last Host IP:${X}      ${Y}%-42s${X} ${C}║${X}\n" "$last_host_ip"
+    printf "${C}║${X} ${B}Usable Hosts:${X}      ${Y}%-42s${X} ${C}║${X}\n" "$usable_hosts"
+  else
+    printf "${C}║${X} ${B}Type:${X}              ${Y}%-42s${X} ${C}║${X}\n" "Single Host (/$cidr)"
+  fi
+  printf "${C}║${X} ${B}Total Addresses:${X}   ${Y}%-42s${X} ${C}║${X}\n" "$total_hosts"
+  echo "${C}╚═══════════════════════════════════════════════════════════════╝${X}"
+}
+
+process_input() {
+  local input=$1
+  local base_ip=$2
+  if is_valid_cidr "$input"; then
+    local cidr=${input#/}
+    local mask=$(cidr_to_mask $cidr)
+    echo ""
+    echo "${W}CIDR → Subnet Mask Conversion:${X}"
+    echo "${B}CIDR:${X}        ${Y}$input${X}"
+    echo "${B}Subnet Mask:${X} ${Y}$mask${X}"
+    if [[ -n $base_ip ]]; then
+      calculate_network_info "$base_ip" "$cidr"
+    fi
+  elif is_valid_subnet_mask "$input"; then
+    local cidr=$(mask_to_cidr "$input")
+    echo ""
+    echo "${W}Subnet Mask → CIDR Conversion:${X}"
+    echo "${B}Subnet Mask:${X} ${Y}$input${X}"
+    echo "${B}CIDR:${X}        ${Y}/$cidr${X}"
+    if [[ -n $base_ip ]]; then
+      calculate_network_info "$base_ip" "$cidr"
+    fi
+  else
+    error "Invalid format. Use CIDR (e.g., /24) or subnet mask (e.g., 255.255.255.0)"
+  fi
+}
+
+main() {
+  case "${1:-}" in
+  -h | --help)
+    show_help
+    exit 0
+    ;;
+  -c | --cheatsheet)
+    show_cheat_sheet
+    exit 0
+    ;;
+  -v | --version)
+    show_version
+    exit 0
+    ;;
+  "")
+    error "Missing parameter. Use -h for help."
+    ;;
+  esac
+  local input=$1
+  local base_ip=${2:-}
+  if [[ -n $base_ip ]] && ! is_valid_ip "$base_ip"; then
+    error "Base IP '$base_ip' is not valid"
+  fi
+  if ! command -v bc >/dev/null 2>&1; then
+    error "Command 'bc' is required but not installed"
+  fi
+  process_input "$input" "$base_ip"
+}
+
+main "$@"
