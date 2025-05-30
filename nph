@@ -150,29 +150,29 @@ calculate_network_info() {
   elif [[ $first_octet -ge 192 && $first_octet -le 223 ]]; then
     class="C"
   elif [[ $first_octet -ge 224 && $first_octet -le 239 ]]; then
-    class="D (Multicast)"
+    class="D"
   else
-    class="E (Experimental)"
+    class="E"
   fi
 
   local addr_type=""
   if [[ $first_octet -eq 10 ]] ||
     [[ $first_octet -eq 172 && $(echo "$network_ip" | cut -d. -f2) -ge 16 && $(echo "$network_ip" | cut -d. -f2) -le 31 ]] ||
     [[ $first_octet -eq 192 && $(echo "$network_ip" | cut -d. -f2) -eq 168 ]]; then
-    addr_type="Private"
+    addr_type="(Private) "
   elif [[ $first_octet -eq 127 ]]; then
-    addr_type="Loopback"
+    addr_type="(Loopback)"
   elif [[ $first_octet -eq 169 && $(echo "$network_ip" | cut -d. -f2) -eq 254 ]]; then
-    addr_type="APIPA"
+    addr_type="(APIPA)   "
   else
-    addr_type="Public"
+    addr_type="(Public)  "
   fi
 
   echo ""
   echo "${C}╔═══════════════════════════════════════════════════════════════╗${X}"
   echo "${C}║${W}                    NETWORK INFORMATION                        ${C}║${X}"
   echo "${C}╠═══════════════════════════════════════════════════════════════╣${X}"
-  printf "${C}║${X} ${B}Given IP:${X}          ${Y}%-15s${X} ${G}(%s)${X}                   ${C}║${X}\n" "$ip" "$addr_type"
+  printf "${C}║${X} ${B}Given IP:${X}          ${Y}%-15s${X} ${G}%s${X}                 ${C}║${X}\n" "$ip" "$addr_type"
   printf "${C}║${X} ${B}Class:${X}             ${Y}%-42s${X} ${C}║${X}\n" "$class"
   echo "${C}╠═══════════════════════════════════════════════════════════════╣${X}"
   printf "${C}║${X} ${B}Subnet Mask:${X}       ${Y}%-42s${X} ${C}║${X}\n" "$subnet_mask"
