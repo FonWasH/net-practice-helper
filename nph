@@ -233,6 +233,12 @@ main() {
     show_version
     exit 0
     ;;
+  --*)
+    error "Unknown option: $1. Use -h for help."
+    ;;
+  -*)
+    error "Unknown option: $1. Use -h for help."
+    ;;
   "")
     error "Missing parameter. Use -h for help."
     ;;
